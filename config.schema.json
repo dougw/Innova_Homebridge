@@ -1,0 +1,59 @@
+{
+  "pluginAlias": "InnovaLocal",
+  "pluginType": "platform",
+  "singular": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "default": "Innova Local",
+        "required": true
+      },
+      "devices": {
+        "title": "Fancoils",
+        "type": "array",
+        "required": true,
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "title": "Display Name",
+              "type": "string"
+            },
+            "host": {
+              "title": "IP Address",
+              "type": "string",
+              "required": true,
+              "placeholder": "192.168.1.50"
+            }
+          }
+        }
+      },
+      "pollInterval": {
+        "title": "Status cache time (ms)",
+        "type": "integer",
+        "default": 5000,
+        "minimum": 1000
+      },
+      "timeoutMs": {
+        "title": "Request timeout (ms)",
+        "type": "integer",
+        "default": 4000,
+        "minimum": 500
+      }
+    }
+  },
+  "layout": [
+    "name",
+    {
+      "key": "devices",
+      "type": "array",
+      "orderable": true,
+      "buttonText": "Add fancoil"
+    },
+    "pollInterval",
+    "timeoutMs"
+  ]
+}
