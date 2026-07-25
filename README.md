@@ -7,6 +7,10 @@ It supports multiple units, power, heating/cooling mode, target and current
 temperature, and fan speed. Control stays on the LAN and does not require an
 Innova cloud login.
 
+Status is polled in the background and cached, so HomeKit reads return
+immediately even if a fancoil briefly drops off Wi-Fi. Local requests are
+retried automatically.
+
 ## Compatibility check
 
 Run:
@@ -56,6 +60,24 @@ line (a backup is created automatically):
 ```sh
 node scripts/configure-homebridge.js ~/.homebridge/config.json 192.168.1.50 192.168.1.51
 ```
+
+On a server with more than one active network interface, bind Homebridge to
+the stable wired interface and use the `ciao` mDNS advertiser:
+
+```sh
+node scripts/harden-homebridge.js ~/.homebridge/config.json en0
+```
+
+Restart Homebridge after changing its network configuration.
+
+For an always-on macOS Homebridge server, disable automatic system sleep while
+allowing the display to sleep:
+
+```sh
+sudo pmset -a sleep 0 autorestart 1 womp 1
+```
+
+This does not prevent the display from turning off.
 
 ## Development
 

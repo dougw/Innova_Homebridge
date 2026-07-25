@@ -32,16 +32,23 @@
         }
       },
       "pollInterval": {
-        "title": "Status cache time (ms)",
+        "title": "Background polling interval (ms)",
         "type": "integer",
-        "default": 5000,
-        "minimum": 1000
+        "default": 10000,
+        "minimum": 5000
       },
       "timeoutMs": {
         "title": "Request timeout (ms)",
         "type": "integer",
-        "default": 4000,
+        "default": 2500,
         "minimum": 500
+      },
+      "retries": {
+        "title": "Network retries",
+        "type": "integer",
+        "default": 2,
+        "minimum": 0,
+        "maximum": 5
       }
     }
   },
@@ -54,6 +61,7 @@
       "buttonText": "Add fancoil"
     },
     "pollInterval",
-    "timeoutMs"
+    "timeoutMs",
+    "retries"
   ]
 }

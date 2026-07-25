@@ -13,7 +13,8 @@ const MODE = Object.freeze({
 class InnovaClient {
   constructor(host, options = {}) {
     this.host = host;
-    this.timeoutMs = options.timeoutMs ?? 4000;
+    this.timeoutMs = options.timeoutMs ?? 2500;
+    this.retries = options.retries ?? 2;
     this.log = options.log;
     this.fetch = options.fetch ?? globalThis.fetch;
     this.deviceType = options.deviceType;
@@ -24,34 +25,41 @@ class InnovaClient {
   }
 
   async request(path, options = {}) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     const url = `${this.baseUrl}/${path.replace(/^\//, '')}`;
+    let lastError;
 
-    try {
-      this.log?.debug?.(`${options.method ?? 'GET'} ${url}`);
-      const response = await this.fetch(url, {
-        method: options.method ?? 'GET',
-        headers: options.body ? { 'content-type': 'application/json' } : undefined,
-        body: options.body ? JSON.stringify(options.body) : undefined,
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status} from ${url}`);
+    for (let attempt = 0; attempt <= this.retries; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+      try {
+        this.log?.debug?.(`${options.method ?? 'GET'} ${url}${attempt ? ` (retry ${attempt})` : ''}`);
+        const response = await this.fetch(url, {
+          method: options.method ?? 'GET',
+          headers: options.body ? { 'content-type': 'application/json' } : undefined,
+          body: options.body ? JSON.stringify(options.body) : undefined,
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status} from ${url}`);
+        }
+        const payload = await response.json();
+        if (payload.success !== true) {
+          throw new Error(`Innova rejected ${path}`);
+        }
+        return payload;
+      } catch (error) {
+        lastError = error.name === 'AbortError'
+          ? new Error(`Timed out contacting Innova at ${this.host}`)
+          : error;
+        if (attempt < this.retries) {
+          await delay(200 * (attempt + 1));
+        }
+      } finally {
+        clearTimeout(timer);
       }
-      const payload = await response.json();
-      if (payload.success !== true) {
-        throw new Error(`Innova rejected ${path}`);
-      }
-      return payload;
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        throw new Error(`Timed out contacting Innova at ${this.host}`);
-      }
-      throw error;
-    } finally {
-      clearTimeout(timer);
     }
+
+    throw lastError;
   }
 
   async status() {
@@ -93,6 +101,10 @@ class InnovaClient {
     const speed = percent <= 0 ? 0 : Math.min(4, Math.max(1, Math.ceil(percent / 25)));
     return this.command('set/fan', { value: speed });
   }
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function normalizeStatus(payload) {

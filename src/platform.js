@@ -34,6 +34,7 @@ class InnovaPlatform {
       try {
         const client = new InnovaClient(device.host, {
           timeoutMs: this.config.timeoutMs,
+          retries: this.config.retries,
           log: this.log,
         });
         const state = await client.status();

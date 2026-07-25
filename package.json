@@ -1,6 +1,6 @@
 {
   "name": "homebridge-innova-local",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local Homebridge integration for Innova ..2.0 and AirLeaf fan coils",
   "license": "MIT",
   "main": "src/index.js",
@@ -18,7 +18,7 @@
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check src/index.js && node --check src/platform.js && node --check src/accessory.js && node --check src/innova-client.js && node --check scripts/discover.js && node --check scripts/configure-homebridge.js"
+    "check": "node --check src/index.js && node --check src/platform.js && node --check src/accessory.js && node --check src/innova-client.js && node --check scripts/discover.js && node --check scripts/configure-homebridge.js && node --check scripts/harden-homebridge.js"
   },
   "bin": {
     "innova-discover": "scripts/discover.js"

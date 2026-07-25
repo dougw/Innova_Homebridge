@@ -7,7 +7,7 @@ class InnovaAccessory {
     this.client = client;
     this.state = initialState;
     this.refreshPromise = undefined;
-    this.lastRefresh = 0;
+    this.consecutiveFailures = 0;
 
     const { Service, Characteristic } = platform.api.hap;
     this.Service = Service;
@@ -31,7 +31,7 @@ class InnovaAccessory {
       .onGet(() => this.getActive())
       .onSet((value) => this.setActive(value));
     this.service.getCharacteristic(Characteristic.CurrentTemperature)
-      .onGet(() => this.getState().then((state) => state.currentTemperature));
+      .onGet(() => this.state.currentTemperature);
     this.service.getCharacteristic(Characteristic.CurrentHeaterCoolerState)
       .onGet(() => this.getCurrentState());
     this.service.getCharacteristic(Characteristic.TargetHeaterCoolerState)
@@ -40,16 +40,16 @@ class InnovaAccessory {
     this.service.getCharacteristic(Characteristic.CoolingThresholdTemperature)
       .updateValue(initialState.targetTemperature)
       .setProps({ minValue: 5, maxValue: 40, minStep: 0.5 })
-      .onGet(() => this.getState().then((state) => state.targetTemperature))
+      .onGet(() => this.state.targetTemperature)
       .onSet((value) => this.setTemperature(Number(value)));
     this.service.getCharacteristic(Characteristic.HeatingThresholdTemperature)
       .updateValue(initialState.targetTemperature)
       .setProps({ minValue: 5, maxValue: 40, minStep: 0.5 })
-      .onGet(() => this.getState().then((state) => state.targetTemperature))
+      .onGet(() => this.state.targetTemperature)
       .onSet((value) => this.setTemperature(Number(value)));
     this.service.getCharacteristic(Characteristic.RotationSpeed)
       .setProps({ minValue: 0, maxValue: 100, minStep: 25 })
-      .onGet(() => this.getState().then((state) => state.fanPercent))
+      .onGet(() => this.state.fanPercent)
       .onSet((value) => this.setFan(Number(value)));
 
     if (initialState.deviceType === '002') {
@@ -62,17 +62,34 @@ class InnovaAccessory {
           Characteristic.TargetHeaterCoolerState.COOL,
         ] });
     }
+
+    this.updateCharacteristics(initialState);
+    const pollInterval = Math.max(5000, this.platform.config.pollInterval ?? 10000);
+    this.pollTimer = setInterval(() => this.refresh(), pollInterval);
+    this.pollTimer.unref?.();
+    this.platform.api.on('shutdown', () => clearInterval(this.pollTimer));
   }
 
-  async getState(force = false) {
-    const cacheMs = this.platform.config.pollInterval ?? 5000;
-    if (!force && Date.now() - this.lastRefresh < cacheMs) return this.state;
+  refresh() {
     if (!this.refreshPromise) {
       this.refreshPromise = this.client.status()
         .then((state) => {
           this.state = state;
-          this.lastRefresh = Date.now();
+          if (this.consecutiveFailures > 0) {
+            this.platform.log.info(`Innova at ${this.client.host} is reachable again.`);
+          }
+          this.consecutiveFailures = 0;
+          this.updateCharacteristics(state);
           return state;
+        })
+        .catch((error) => {
+          this.consecutiveFailures += 1;
+          if (this.consecutiveFailures === 1 || this.consecutiveFailures % 10 === 0) {
+            this.platform.log.warn(
+              `Cannot refresh Innova at ${this.client.host}; retaining cached state: ${error.message}`,
+            );
+          }
+          return this.state;
         })
         .finally(() => {
           this.refreshPromise = undefined;
@@ -81,9 +98,37 @@ class InnovaAccessory {
     return this.refreshPromise;
   }
 
-  async getActive() {
-    const state = await this.getState();
-    return state.active
+  updateCharacteristics(state) {
+    const { Characteristic } = this;
+    this.service.updateCharacteristic(
+      Characteristic.Active,
+      state.active ? Characteristic.Active.ACTIVE : Characteristic.Active.INACTIVE,
+    );
+    this.service.updateCharacteristic(
+      Characteristic.CurrentTemperature,
+      state.currentTemperature,
+    );
+    this.service.updateCharacteristic(
+      Characteristic.CurrentHeaterCoolerState,
+      this.currentStateValue(state),
+    );
+    this.service.updateCharacteristic(
+      Characteristic.TargetHeaterCoolerState,
+      this.targetStateValue(state),
+    );
+    this.service.updateCharacteristic(
+      Characteristic.CoolingThresholdTemperature,
+      state.targetTemperature,
+    );
+    this.service.updateCharacteristic(
+      Characteristic.HeatingThresholdTemperature,
+      state.targetTemperature,
+    );
+    this.service.updateCharacteristic(Characteristic.RotationSpeed, state.fanPercent);
+  }
+
+  getActive() {
+    return this.state.active
       ? this.Characteristic.Active.ACTIVE
       : this.Characteristic.Active.INACTIVE;
   }
@@ -92,21 +137,29 @@ class InnovaAccessory {
     const active = value === this.Characteristic.Active.ACTIVE;
     await this.client.setPower(active);
     this.state.active = active;
+    this.updateCharacteristics(this.state);
+    void this.refresh();
   }
 
-  async getCurrentState() {
-    const state = await this.getState();
+  currentStateValue(state) {
     if (!state.active) return this.Characteristic.CurrentHeaterCoolerState.INACTIVE;
     if (state.mode === 'heating') return this.Characteristic.CurrentHeaterCoolerState.HEATING;
     if (state.mode === 'cooling') return this.Characteristic.CurrentHeaterCoolerState.COOLING;
     return this.Characteristic.CurrentHeaterCoolerState.IDLE;
   }
 
-  async getTargetState() {
-    const state = await this.getState();
+  getCurrentState() {
+    return this.currentStateValue(this.state);
+  }
+
+  targetStateValue(state) {
     if (state.mode === 'heating') return this.Characteristic.TargetHeaterCoolerState.HEAT;
     if (state.mode === 'cooling') return this.Characteristic.TargetHeaterCoolerState.COOL;
     return this.Characteristic.TargetHeaterCoolerState.AUTO;
+  }
+
+  getTargetState() {
+    return this.targetStateValue(this.state);
   }
 
   async setTargetState(value) {
@@ -118,16 +171,22 @@ class InnovaAccessory {
     const mode = modes[value];
     await this.client.setMode(mode);
     this.state.mode = mode;
+    this.updateCharacteristics(this.state);
+    void this.refresh();
   }
 
   async setTemperature(value) {
     await this.client.setTemperature(value);
     this.state.targetTemperature = value;
+    this.updateCharacteristics(this.state);
+    void this.refresh();
   }
 
   async setFan(value) {
     await this.client.setFan(value);
     this.state.fanPercent = value;
+    this.updateCharacteristics(this.state);
+    void this.refresh();
   }
 }
 

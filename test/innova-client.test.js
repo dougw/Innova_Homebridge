@@ -45,3 +45,25 @@ test('uses AirLeaf JSON temperature encoding', async () => {
   assert.equal(request.url, 'http://192.0.2.1/api/v/1/set/setpoint');
   assert.deepEqual(JSON.parse(request.options.body), { temp: 235 });
 });
+
+test('retries a transient network failure', async () => {
+  let attempts = 0;
+  const client = new InnovaClient('192.0.2.1', {
+    retries: 2,
+    fetch: async () => {
+      attempts += 1;
+      if (attempts < 2) throw new Error('temporary failure');
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          deviceType: '002',
+          RESULT: { sp: 220, ta: 210, wm: 3, fn: 1, ps: 1 },
+        }),
+      };
+    },
+  });
+  const status = await client.status();
+  assert.equal(attempts, 2);
+  assert.equal(status.currentTemperature, 21);
+});
