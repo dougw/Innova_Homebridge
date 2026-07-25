@@ -2,7 +2,11 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { InnovaClient, normalizeStatus } = require('../src/innova-client');
+const {
+  InnovaClient,
+  normalizeStatus,
+  snapAirLeafFanPercent,
+} = require('../src/innova-client');
 
 test('normalizes an AirLeaf response', () => {
   const status = normalizeStatus({
@@ -17,6 +21,19 @@ test('normalizes an AirLeaf response', () => {
   assert.equal(status.targetTemperature, 22.5);
   assert.equal(status.mode, 'cooling');
   assert.equal(status.fanPercent, 100);
+});
+
+test('maps AirLeaf fan functions to the three HomeKit positions', () => {
+  const fanPercent = (fn) => normalizeStatus({
+    success: true,
+    deviceType: '002',
+    RESULT: { sp: 225, ta: 211, wm: 5, fn, ps: 1 },
+  }).fanPercent;
+
+  assert.equal(fanPercent(1), 0);
+  assert.equal(fanPercent(2), 50);
+  assert.equal(fanPercent(3), 50);
+  assert.equal(fanPercent(4), 100);
 });
 
 test('normalizes a legacy Innova response', () => {
@@ -44,6 +61,43 @@ test('uses AirLeaf JSON temperature encoding', async () => {
   await client.setTemperature(23.5);
   assert.equal(request.url, 'http://192.0.2.1/api/v/1/set/setpoint');
   assert.deepEqual(JSON.parse(request.options.body), { temp: 235 });
+});
+
+test('snaps AirLeaf fan values to Auto, 1, and 2', () => {
+  assert.equal(snapAirLeafFanPercent(0), 0);
+  assert.equal(snapAirLeafFanPercent(24), 0);
+  assert.equal(snapAirLeafFanPercent(25), 50);
+  assert.equal(snapAirLeafFanPercent(74), 50);
+  assert.equal(snapAirLeafFanPercent(75), 100);
+  assert.equal(snapAirLeafFanPercent(100), 100);
+});
+
+test('uses AirLeaf fan-function endpoints for the three positions', async () => {
+  const requests = [];
+  const client = new InnovaClient('192.0.2.1', {
+    deviceType: '002',
+    fetch: async (url, options) => {
+      requests.push({ url, options });
+      return { ok: true, json: async () => ({ success: true }) };
+    },
+  });
+
+  await client.setFan(0);
+  await client.setFan(50);
+  await client.setFan(100);
+
+  assert.deepEqual(
+    requests.map(({ url }) => url),
+    [
+      'http://192.0.2.1/api/v/1/set/function/auto',
+      'http://192.0.2.1/api/v/1/set/function/min',
+      'http://192.0.2.1/api/v/1/set/function/max',
+    ],
+  );
+  assert.deepEqual(
+    requests.map(({ options }) => JSON.parse(options.body)),
+    [{ value: 1 }, { value: 1 }, { value: 1 }],
+  );
 });
 
 test('retries a transient network failure', async () => {

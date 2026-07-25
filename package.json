@@ -1,6 +1,6 @@
 {
   "name": "homebridge-innova-local",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Local Homebridge integration for Innova ..2.0 and AirLeaf fan coils",
   "license": "MIT",
   "main": "src/index.js",

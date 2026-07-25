@@ -7,6 +7,11 @@ It supports multiple units, power, heating/cooling mode, target and current
 temperature, and fan speed. Control stays on the LAN and does not require an
 Innova cloud login.
 
+For AirLeaf units, Apple Home's fan-speed slider is limited to three positions:
+`0%` selects **Auto**, `50%` selects **1 (slow)**, and `100%` selects
+**2 (fast)**. Apple Home always labels this standard HomeKit control as a
+percentage; HomeKit does not support custom labels for its slider positions.
+
 Status is polled in the background and cached, so HomeKit reads return
 immediately even if a fancoil briefly drops off Wi-Fi. Local requests are
 retried automatically.

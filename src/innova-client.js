@@ -93,9 +93,17 @@ class InnovaClient {
     return this.command('set/setpoint', body);
   }
 
+  normalizeFanPercent(percent) {
+    if (this.deviceType !== '002') {
+      return Math.max(0, Math.min(100, Number(percent)));
+    }
+    return snapAirLeafFanPercent(percent);
+  }
+
   setFan(percent) {
     if (this.deviceType === '002') {
-      const fn = percent <= 0 ? 'auto' : percent <= 34 ? 'min' : percent >= 85 ? 'max' : 'auto';
+      const fanPercent = snapAirLeafFanPercent(percent);
+      const fn = fanPercent === 0 ? 'auto' : fanPercent === 50 ? 'min' : 'max';
       return this.command(`set/function/${fn}`, { value: 1 });
     }
     const speed = percent <= 0 ? 0 : Math.min(4, Math.max(1, Math.ceil(percent / 25)));
@@ -105,6 +113,13 @@ class InnovaClient {
 
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function snapAirLeafFanPercent(percent) {
+  const value = Math.max(0, Math.min(100, Number(percent)));
+  if (value < 25) return 0;
+  if (value < 75) return 50;
+  return 100;
 }
 
 function normalizeStatus(payload) {
@@ -123,7 +138,7 @@ function normalizeStatus(payload) {
         [MODE.TWO_AUTO]: 'auto',
       })[result.wm] ?? 'unknown';
   const fanPercent = airLeaf
-    ? ({ 1: 0, 2: 25, 3: 50, 4: 100 })[result.fn] ?? 0
+    ? ({ 1: 0, 2: 50, 3: 50, 4: 100 })[result.fn] ?? 0
     : Math.max(0, Math.min(100, Number(result.fs ?? 0) * 25));
 
   if (!Number.isFinite(currentTemperature) || !Number.isFinite(targetTemperature)) {
@@ -145,4 +160,4 @@ function normalizeStatus(payload) {
   };
 }
 
-module.exports = { InnovaClient, normalizeStatus };
+module.exports = { InnovaClient, normalizeStatus, snapAirLeafFanPercent };

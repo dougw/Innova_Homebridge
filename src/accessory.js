@@ -47,8 +47,11 @@ class InnovaAccessory {
       .setProps({ minValue: 5, maxValue: 40, minStep: 0.5 })
       .onGet(() => this.state.targetTemperature)
       .onSet((value) => this.setTemperature(Number(value)));
+    const fanProps = initialState.deviceType === '002'
+      ? { minValue: 0, maxValue: 100, minStep: 50, validValues: [0, 50, 100] }
+      : { minValue: 0, maxValue: 100, minStep: 25 };
     this.service.getCharacteristic(Characteristic.RotationSpeed)
-      .setProps({ minValue: 0, maxValue: 100, minStep: 25 })
+      .setProps(fanProps)
       .onGet(() => this.state.fanPercent)
       .onSet((value) => this.setFan(Number(value)));
 
@@ -183,8 +186,9 @@ class InnovaAccessory {
   }
 
   async setFan(value) {
-    await this.client.setFan(value);
-    this.state.fanPercent = value;
+    const fanPercent = this.client.normalizeFanPercent(value);
+    await this.client.setFan(fanPercent);
+    this.state.fanPercent = fanPercent;
     this.updateCharacteristics(this.state);
     void this.refresh();
   }
