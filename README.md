@@ -16,6 +16,12 @@ Status is polled in the background and cached, so HomeKit reads return
 immediately even if a fancoil briefly drops off Wi-Fi. Local requests are
 retried automatically.
 
+Scene writes are acknowledged immediately, duplicate settings are coalesced,
+and commands are sent sequentially to each fancoil. If a thermostat is briefly
+unreachable, the latest desired state is retained and retried in the background
+with increasing delays. This prevents multi-room scenes from overwhelming the
+embedded AirLeaf web servers.
+
 ## Compatibility check
 
 Run:

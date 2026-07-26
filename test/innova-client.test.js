@@ -121,3 +121,43 @@ test('retries a transient network failure', async () => {
   assert.equal(attempts, 2);
   assert.equal(status.currentTemperature, 21);
 });
+
+test('serializes requests to protect the thermostat web server', async () => {
+  let concurrent = 0;
+  let maxConcurrent = 0;
+  const client = new InnovaClient('192.0.2.1', {
+    retries: 0,
+    fetch: async () => {
+      concurrent += 1;
+      maxConcurrent = Math.max(maxConcurrent, concurrent);
+      await new Promise((resolve) => setImmediate(resolve));
+      concurrent -= 1;
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          deviceType: '002',
+          RESULT: { sp: 220, ta: 210, wm: 3, fn: 1, ps: 1 },
+        }),
+      };
+    },
+  });
+
+  await Promise.all([client.status(), client.status(), client.status()]);
+  assert.equal(maxConcurrent, 1);
+});
+
+test('allows command retries to be delegated to the desired-state queue', async () => {
+  let attempts = 0;
+  const client = new InnovaClient('192.0.2.1', {
+    retries: 2,
+    commandRetries: 0,
+    fetch: async () => {
+      attempts += 1;
+      throw new Error('offline');
+    },
+  });
+
+  await assert.rejects(client.setPower(true), /offline/);
+  assert.equal(attempts, 1);
+});

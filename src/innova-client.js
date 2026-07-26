@@ -15,20 +15,29 @@ class InnovaClient {
     this.host = host;
     this.timeoutMs = options.timeoutMs ?? 2500;
     this.retries = options.retries ?? 2;
+    this.commandRetries = options.commandRetries ?? this.retries;
     this.log = options.log;
     this.fetch = options.fetch ?? globalThis.fetch;
     this.deviceType = options.deviceType;
+    this.requestTail = Promise.resolve();
   }
 
   get baseUrl() {
     return `http://${this.host}/api/v/1`;
   }
 
-  async request(path, options = {}) {
+  request(path, options = {}) {
+    const operation = this.requestTail.then(() => this.performRequest(path, options));
+    this.requestTail = operation.catch(() => undefined);
+    return operation;
+  }
+
+  async performRequest(path, options = {}) {
     const url = `${this.baseUrl}/${path.replace(/^\//, '')}`;
+    const retries = options.retries ?? this.retries;
     let lastError;
 
-    for (let attempt = 0; attempt <= this.retries; attempt += 1) {
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), this.timeoutMs);
       try {
@@ -51,7 +60,7 @@ class InnovaClient {
         lastError = error.name === 'AbortError'
           ? new Error(`Timed out contacting Innova at ${this.host}`)
           : error;
-        if (attempt < this.retries) {
+        if (attempt < retries) {
           await delay(200 * (attempt + 1));
         }
       } finally {
@@ -69,7 +78,11 @@ class InnovaClient {
   }
 
   command(path, body) {
-    return this.request(path, { method: 'POST', body });
+    return this.request(path, {
+      method: 'POST',
+      body,
+      retries: this.commandRetries,
+    });
   }
 
   setPower(on) {
