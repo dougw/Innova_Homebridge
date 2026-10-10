@@ -1,5 +1,7 @@
 'use strict';
 
+const { DEFAULT_TIMEOUT_MS } = require('./settings');
+
 const MODE = Object.freeze({
   TWO_HEATING: 0,
   TWO_COOLING: 1,
@@ -13,55 +15,76 @@ const MODE = Object.freeze({
 class InnovaClient {
   constructor(host, options = {}) {
     this.host = host;
-    this.timeoutMs = options.timeoutMs ?? 4000;
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.retries = options.retries ?? 2;
+    this.commandRetries = options.commandRetries ?? this.retries;
     this.log = options.log;
     this.fetch = options.fetch ?? globalThis.fetch;
     this.deviceType = options.deviceType;
+    this.requestTail = Promise.resolve();
   }
 
   get baseUrl() {
     return `http://${this.host}/api/v/1`;
   }
 
-  async request(path, options = {}) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-    const url = `${this.baseUrl}/${path.replace(/^\//, '')}`;
-
-    try {
-      this.log?.debug?.(`${options.method ?? 'GET'} ${url}`);
-      const response = await this.fetch(url, {
-        method: options.method ?? 'GET',
-        headers: options.body ? { 'content-type': 'application/json' } : undefined,
-        body: options.body ? JSON.stringify(options.body) : undefined,
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status} from ${url}`);
-      }
-      const payload = await response.json();
-      if (payload.success !== true) {
-        throw new Error(`Innova rejected ${path}`);
-      }
-      return payload;
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        throw new Error(`Timed out contacting Innova at ${this.host}`);
-      }
-      throw error;
-    } finally {
-      clearTimeout(timer);
-    }
+  request(path, options = {}) {
+    const operation = this.requestTail.then(() => this.performRequest(path, options));
+    this.requestTail = operation.catch(() => undefined);
+    return operation;
   }
 
-  async status() {
-    const payload = await this.request('status');
+  async performRequest(path, options = {}) {
+    const url = `${this.baseUrl}/${path.replace(/^\//, '')}`;
+    const retries = options.retries ?? this.retries;
+    let lastError;
+
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+      try {
+        this.log?.debug?.(`${options.method ?? 'GET'} ${url}${attempt ? ` (retry ${attempt})` : ''}`);
+        const response = await this.fetch(url, {
+          method: options.method ?? 'GET',
+          headers: options.body ? { 'content-type': 'application/json' } : undefined,
+          body: options.body ? JSON.stringify(options.body) : undefined,
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status} from ${url}`);
+        }
+        const payload = await response.json();
+        if (payload.success !== true) {
+          throw new Error(`Innova rejected ${path}`);
+        }
+        return payload;
+      } catch (error) {
+        lastError = error.name === 'AbortError'
+          ? new Error(`Timed out contacting Innova at ${this.host}`)
+          : error;
+        if (attempt < retries) {
+          await delay(200 * (attempt + 1));
+        }
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    throw lastError;
+  }
+
+  async status(options = {}) {
+    const payload = await this.request('status', options);
     this.deviceType = String(payload.deviceType ?? this.deviceType ?? '');
     return normalizeStatus(payload);
   }
 
   command(path, body) {
-    return this.request(path, { method: 'POST', body });
+    return this.request(path, {
+      method: 'POST',
+      body,
+      retries: this.commandRetries,
+    });
   }
 
   setPower(on) {
@@ -85,14 +108,33 @@ class InnovaClient {
     return this.command('set/setpoint', body);
   }
 
+  normalizeFanPercent(percent) {
+    if (this.deviceType !== '002') {
+      return Math.max(0, Math.min(100, Number(percent)));
+    }
+    return snapAirLeafFanPercent(percent);
+  }
+
   setFan(percent) {
     if (this.deviceType === '002') {
-      const fn = percent <= 0 ? 'auto' : percent <= 34 ? 'min' : percent >= 85 ? 'max' : 'auto';
+      const fanPercent = snapAirLeafFanPercent(percent);
+      const fn = fanPercent === 0 ? 'auto' : fanPercent === 50 ? 'min' : 'max';
       return this.command(`set/function/${fn}`, { value: 1 });
     }
     const speed = percent <= 0 ? 0 : Math.min(4, Math.max(1, Math.ceil(percent / 25)));
     return this.command('set/fan', { value: speed });
   }
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function snapAirLeafFanPercent(percent) {
+  const value = Math.max(0, Math.min(100, Number(percent)));
+  if (value < 25) return 0;
+  if (value < 75) return 50;
+  return 100;
 }
 
 function normalizeStatus(payload) {
@@ -111,7 +153,7 @@ function normalizeStatus(payload) {
         [MODE.TWO_AUTO]: 'auto',
       })[result.wm] ?? 'unknown';
   const fanPercent = airLeaf
-    ? ({ 1: 0, 2: 25, 3: 50, 4: 100 })[result.fn] ?? 0
+    ? ({ 1: 0, 2: 50, 3: 50, 4: 100 })[result.fn] ?? 0
     : Math.max(0, Math.min(100, Number(result.fs ?? 0) * 25));
 
   if (!Number.isFinite(currentTemperature) || !Number.isFinite(targetTemperature)) {
@@ -133,4 +175,4 @@ function normalizeStatus(payload) {
   };
 }
 
-module.exports = { InnovaClient, normalizeStatus };
+module.exports = { InnovaClient, normalizeStatus, snapAirLeafFanPercent };
