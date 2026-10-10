@@ -162,6 +162,22 @@ test('acknowledges duplicate HomeKit temperature writes immediately and coalesce
   fixture.shutdown();
 });
 
+test('does not immediately retry a failed background status poll', async () => {
+  let statusOptions;
+  const fixture = createAccessory({
+    status: async (options) => {
+      statusOptions = options;
+      throw new Error('temporarily busy');
+    },
+  });
+
+  await fixture.instance.refresh();
+
+  assert.deepEqual(statusOptions, { retries: 0 });
+  assert.equal(fixture.logs.warn.length, 1);
+  fixture.shutdown();
+});
+
 test('applies scene writes sequentially in a thermostat-safe order', async () => {
   const fixture = createAccessory();
 

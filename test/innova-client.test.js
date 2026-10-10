@@ -122,6 +122,20 @@ test('retries a transient network failure', async () => {
   assert.equal(status.currentTemperature, 21);
 });
 
+test('allows a background status poll to disable immediate retries', async () => {
+  let attempts = 0;
+  const client = new InnovaClient('192.0.2.1', {
+    retries: 2,
+    fetch: async () => {
+      attempts += 1;
+      throw new Error('temporarily busy');
+    },
+  });
+
+  await assert.rejects(client.status({ retries: 0 }), /temporarily busy/);
+  assert.equal(attempts, 1);
+});
+
 test('serializes requests to protect the thermostat web server', async () => {
   let concurrent = 0;
   let maxConcurrent = 0;

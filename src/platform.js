@@ -2,7 +2,11 @@
 
 const { InnovaClient } = require('./innova-client');
 const { InnovaAccessory } = require('./accessory');
-const { PLUGIN_NAME, PLATFORM_NAME } = require('./settings');
+const {
+  DEFAULT_POLL_INTERVAL_MS,
+  PLUGIN_NAME,
+  PLATFORM_NAME,
+} = require('./settings');
 
 class InnovaPlatform {
   constructor(log, config, api) {
@@ -26,7 +30,11 @@ class InnovaPlatform {
     }
 
     const activeUuids = new Set();
-    for (const device of devices) {
+    const pollInterval = Math.max(
+      5000,
+      this.config.pollInterval ?? DEFAULT_POLL_INTERVAL_MS,
+    );
+    for (const [deviceIndex, device] of devices.entries()) {
       if (!device.host) {
         this.log.warn('Skipping an Innova entry without a host.');
         continue;
@@ -56,7 +64,9 @@ class InnovaPlatform {
             .updateCharacteristic(this.api.hap.Characteristic.Name, configuredName);
         }
         accessory.context.device = { ...device, identity };
-        new InnovaAccessory(this, accessory, client, state);
+        new InnovaAccessory(this, accessory, client, state, {
+          pollOffsetMs: pollOffsetFor(deviceIndex, devices.length, pollInterval),
+        });
         if (nameChanged) {
           this.api.updatePlatformAccessories([accessory]);
         }
@@ -74,4 +84,9 @@ class InnovaPlatform {
   }
 }
 
-module.exports = { InnovaPlatform };
+function pollOffsetFor(deviceIndex, deviceCount, pollInterval) {
+  if (deviceCount <= 1) return 0;
+  return Math.floor((pollInterval * deviceIndex) / deviceCount);
+}
+
+module.exports = { InnovaPlatform, pollOffsetFor };

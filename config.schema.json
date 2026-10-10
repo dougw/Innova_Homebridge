@@ -34,17 +34,17 @@
       "pollInterval": {
         "title": "Background polling interval (ms)",
         "type": "integer",
-        "default": 10000,
+        "default": 30000,
         "minimum": 5000
       },
       "timeoutMs": {
         "title": "Request timeout (ms)",
         "type": "integer",
-        "default": 2500,
+        "default": 12000,
         "minimum": 500
       },
       "retries": {
-        "title": "Network retries",
+        "title": "Startup discovery retries",
         "type": "integer",
         "default": 2,
         "minimum": 0,

@@ -1,5 +1,7 @@
 'use strict';
 
+const { DEFAULT_TIMEOUT_MS } = require('./settings');
+
 const MODE = Object.freeze({
   TWO_HEATING: 0,
   TWO_COOLING: 1,
@@ -13,7 +15,7 @@ const MODE = Object.freeze({
 class InnovaClient {
   constructor(host, options = {}) {
     this.host = host;
-    this.timeoutMs = options.timeoutMs ?? 2500;
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.retries = options.retries ?? 2;
     this.commandRetries = options.commandRetries ?? this.retries;
     this.log = options.log;
@@ -71,8 +73,8 @@ class InnovaClient {
     throw lastError;
   }
 
-  async status() {
-    const payload = await this.request('status');
+  async status(options = {}) {
+    const payload = await this.request('status', options);
     this.deviceType = String(payload.deviceType ?? this.deviceType ?? '');
     return normalizeStatus(payload);
   }

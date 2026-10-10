@@ -1,12 +1,14 @@
 'use strict';
 
+const { DEFAULT_POLL_INTERVAL_MS } = require('./settings');
+
 const CONTROLLED_FIELDS = ['active', 'mode', 'targetTemperature', 'fanPercent'];
 const WRITE_RETRY_DELAYS_MS = [1000, 2000, 5000, 10000, 30000, 60000];
 const WRITE_DEBOUNCE_MS = 200;
 const POST_WRITE_REFRESH_MS = 300;
 
 class InnovaAccessory {
-  constructor(platform, accessory, client, initialState) {
+  constructor(platform, accessory, client, initialState, options = {}) {
     this.platform = platform;
     this.accessory = accessory;
     this.client = client;
@@ -82,10 +84,23 @@ class InnovaAccessory {
     }
 
     this.updateCharacteristics(initialState);
-    const pollInterval = Math.max(5000, this.platform.config.pollInterval ?? 10000);
-    this.pollTimer = setInterval(() => this.refresh(), pollInterval);
-    this.pollTimer.unref?.();
+    const pollInterval = Math.max(
+      5000,
+      this.platform.config.pollInterval ?? DEFAULT_POLL_INTERVAL_MS,
+    );
+    const pollOffsetMs = Math.max(
+      0,
+      Math.min(pollInterval - 1, Number(options.pollOffsetMs) || 0),
+    );
+    this.pollStartTimer = setTimeout(() => {
+      this.pollStartTimer = undefined;
+      void this.refresh();
+      this.pollTimer = setInterval(() => this.refresh(), pollInterval);
+      this.pollTimer.unref?.();
+    }, pollInterval + pollOffsetMs);
+    this.pollStartTimer.unref?.();
     this.platform.api.on('shutdown', () => {
+      clearTimeout(this.pollStartTimer);
       clearInterval(this.pollTimer);
       clearTimeout(this.writeTimer);
       clearTimeout(this.refreshTimer);
@@ -97,7 +112,9 @@ class InnovaAccessory {
       return Promise.resolve(this.state);
     }
     if (!this.refreshPromise) {
-      this.refreshPromise = this.client.status()
+      // A failed background read is retried by the next scheduled poll. Immediate
+      // retries can overwhelm the single-request web server in an AirLeaf unit.
+      this.refreshPromise = this.client.status({ retries: 0 })
         .then((state) => {
           this.confirmedState = { ...state };
           if (this.hasOutstandingWrites()) {
